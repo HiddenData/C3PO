@@ -75,3 +75,20 @@ class UnicodeWriter(object):
 
     def close(self):
         self.stream.close()
+
+
+def get_filename_from_context(context):
+    return 'editor.po' if 'editor' in context else 'django.po'
+
+
+def get_context_from_filename(po_filename, entry):
+    if 'editor' in po_filename:
+        context = 'editor'
+    else:
+        for occurrence, line in entry.occurrences:
+            if 'dashboard' not in occurrence:
+                context = 'e-commerce'
+                break
+        else:
+            context = 'dashboard'
+    return context

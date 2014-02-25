@@ -9,7 +9,8 @@ from itertools import izip_longest
 import polib
 
 from c3po.conf import settings
-from c3po.converters.unicode import UnicodeWriter, UnicodeReader
+from c3po.converters.utils import UnicodeWriter, UnicodeReader, \
+    get_context_from_filename, get_filename_from_context
 
 
 METADATA_EMPTY = "{'comment': '', 'previous_msgctxt': None, " + \
@@ -135,7 +136,8 @@ def _write_new_messages(po_file_path, trans_writer, meta_writer,
     for entry in po_file:
         if entry.msgid not in msgids:
             new_trans += 1
-            trans = [po_filename, entry.tcomment, entry.msgid, entry.msgstr]
+            trans = [get_context_from_filename(po_filename, entry),
+                     entry.tcomment, entry.msgid, entry.msgstr]
             for lang in languages[1:]:
                 trans.append(msgstrs[lang].get(entry.msgid, ''))
 
@@ -145,12 +147,12 @@ def _write_new_messages(po_file_path, trans_writer, meta_writer,
             meta.pop('tcomment', None)
 
             trans_writer.writerow(trans)
-            meta_writer.writerow([str(meta)])
+            meta_writer.writerow([po_filename, str(meta)])
 
     return new_trans
 
 
-def _get_new_msgstrs(po_file_path, msgids):
+def _get_new_msgstrs(po_file_path, msgids, unfuzzy=False):
     """
     Write new msgids which appeared in po files with empty msgstrs values
     and metadata. Look for all new msgids which are diffed with msgids list
@@ -162,7 +164,14 @@ def _get_new_msgstrs(po_file_path, msgids):
 
     for entry in po_file:
         if entry.msgid not in msgids:
-            msgstrs[entry.msgid] = entry.msgstr
+            if unfuzzy:
+                if 'fuzzy' in entry.flags:
+                    msgstrs[entry.msgid] = ''
+                    entry.flags.remove('fuzzy')
+                else:
+                    msgstrs[entry.msgid] = entry.msgstr
+            else:
+                msgstrs[entry.msgid] = entry.msgstr
 
     return msgstrs
 
@@ -191,17 +200,20 @@ def po_to_csv_merge(languages, locale_root, po_files_path,
         trans_title = trans_reader.next()
         meta_title = meta_reader.next()
     except StopIteration:
-        trans_title = ['file', 'comment', 'msgid']
+        trans_title = ['context', 'comment', 'msgid']
         trans_title += map(lambda s: s + ':msgstr', languages)
-        meta_title = ['metadata']
+        meta_title = ['file', 'metadata']
 
     trans_writer, meta_writer = _get_new_csv_writers(
         trans_title, meta_title, local_trans_csv, local_meta_csv)
 
     for trans_row, meta_row in izip_longest(trans_reader, meta_reader):
-        msgids.append(trans_row[2])
-        trans_writer.writerow(trans_row)
-        meta_writer.writerow(meta_row if meta_row else [METADATA_EMPTY])
+        if trans_row:
+            msgids.append(trans_row[2])
+            trans_writer.writerow(trans_row)
+            meta_writer.writerow(
+                meta_row if meta_row
+                else [get_filename_from_context(trans_row[0]), METADATA_EMPTY])
 
     trans_reader.close()
     meta_reader.close()
@@ -262,8 +274,9 @@ def csv_to_po(trans_csv_path, meta_csv_path, locale_root,
     meta_reader.next()
     # go through every row in downloaded csv file
     for trans_row, meta_row in izip_longest(trans_reader, meta_reader):
-        filename = trans_row[0].rstrip()
-        metadata = meta_row[0].rstrip() if meta_row else METADATA_EMPTY
+        filename = meta_row[0].rstrip() if meta_row \
+            else get_filename_from_context(trans_row[0])
+        metadata = meta_row[1].rstrip() if meta_row else METADATA_EMPTY
         comment = trans_row[1]
         msgid = trans_row[2]
 

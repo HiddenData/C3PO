@@ -8,7 +8,7 @@ import polib
 from odslib import ODS
 from c3po.conf import settings
 from c3po.converters.po_csv import _get_all_po_filenames
-from c3po.converters.unicode import UnicodeReader
+from c3po.converters.utils import UnicodeReader, get_context_from_filename
 
 
 def _escape_apostrophe(entry):
@@ -23,8 +23,12 @@ def _prepare_ods_columns(ods, trans_title_row):
     """
     ods.content.getSheet(0).setSheetName('Translations')
     ods.content.makeSheet('Meta options')
-    ods.content.getColumn(0).setWidth('5.0in')
-    ods.content.getCell(0, 0).stringValue('metadata')\
+    ods.content.getColumn(0).setWidth('1.5in')
+    ods.content.getCell(0, 0).stringValue('file')\
+        .setCellColor(settings.TITLE_ROW_BG_COLOR) \
+        .setBold(True).setFontColor(settings.TITLE_ROW_FONT_COLOR)
+    ods.content.getColumn(1).setWidth('5.0in')
+    ods.content.getCell(1, 0).stringValue('metadata')\
         .setCellColor(settings.TITLE_ROW_BG_COLOR) \
         .setBold(True).setFontColor(settings.TITLE_ROW_FONT_COLOR)
 
@@ -90,7 +94,7 @@ def po_to_ods(languages, locale_root, po_files_path, temp_file_path):
     :param po_files_path: path from lang directory to po file
     :param temp_file_path: path where temporary files will be saved
     """
-    title_row = ['file', 'comment', 'msgid']
+    title_row = ['context', 'comment', 'msgid']
     title_row += map(lambda s: s + ':msgstr', languages)
 
     ods = ODS()
@@ -113,14 +117,18 @@ def po_to_ods(languages, locale_root, po_files_path, temp_file_path):
             meta.pop('msgstr', None)
             meta.pop('tcomment', None)
 
+            context = get_context_from_filename(po_filename, entry)
+
             ods.content.getSheet(1)
             ods.content.getCell(0, i).stringValue(
-                str(meta)).setCellColor(settings.EVEN_COLUMN_BG_COLOR)
+                po_filename).setCellColor(settings.EVEN_COLUMN_BG_COLOR)
+            ods.content.getCell(1, i).stringValue(
+                str(meta)).setCellColor(settings.ODD_COLUMN_BG_COLOR)
 
             ods.content.getSheet(0)
             ods.content.getCell(0, i) \
-                .stringValue(po_filename) \
-                .setCellColor(settings.ODD_COLUMN_BG_COLOR)
+                .stringValue(context) \
+                .setCellColor(settings.EVEN_COLUMN_BG_COLOR)
             ods.content.getCell(1, i) \
                 .stringValue(_escape_apostrophe(entry.tcomment)) \
                 .setCellColor(settings.ODD_COLUMN_BG_COLOR)
@@ -128,7 +136,7 @@ def po_to_ods(languages, locale_root, po_files_path, temp_file_path):
                 .stringValue(_escape_apostrophe(entry.msgid)) \
                 .setCellColor(settings.EVEN_COLUMN_BG_COLOR)
             ods.content.getCell(3, i) \
-                .stringValue(_escape_apostrophe(entry.msgstr))\
+                .stringValue(_escape_apostrophe(entry.msgstr)) \
                 .setCellColor(settings.ODD_COLUMN_BG_COLOR)
 
             i += 1
