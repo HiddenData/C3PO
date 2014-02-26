@@ -123,7 +123,8 @@ def _write_header(po_path, lang, header):
 
 
 def _write_new_messages(po_file_path, trans_writer, meta_writer,
-                        msgids, msgstrs, languages):
+                        msgids, msgstrs, languages,
+                        remove_plural=True, unfuzzy=True):
     """
     Write new msgids which appeared in po files with empty msgstrs values
     and metadata. Look for all new msgids which are diffed with msgids list
@@ -136,8 +137,14 @@ def _write_new_messages(po_file_path, trans_writer, meta_writer,
     for entry in po_file:
         if entry.msgid not in msgids:
             new_trans += 1
+
+            if unfuzzy and 'fuzzy' in entry.flags:
+                entry.msgstr = ''
+                entry.flags.remove('fuzzy')
+
             trans = [get_context_from_filename(po_filename, entry),
                      entry.tcomment, entry.msgid, entry.msgstr]
+
             for lang in languages[1:]:
                 trans.append(msgstrs[lang].get(entry.msgid, ''))
 
@@ -146,13 +153,18 @@ def _write_new_messages(po_file_path, trans_writer, meta_writer,
             meta.pop('msgstr', None)
             meta.pop('tcomment', None)
 
+            # TODO: implement support for plural messages
+            if remove_plural:
+                meta['msgid_plural'] = ''
+                meta['msgstr_plural'] = {}
+
             trans_writer.writerow(trans)
             meta_writer.writerow([po_filename, str(meta)])
 
     return new_trans
 
 
-def _get_new_msgstrs(po_file_path, msgids, unfuzzy=False):
+def _get_new_msgstrs(po_file_path, msgids, unfuzzy=True):
     """
     Write new msgids which appeared in po files with empty msgstrs values
     and metadata. Look for all new msgids which are diffed with msgids list
