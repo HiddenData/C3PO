@@ -10,8 +10,6 @@ from c3po.mod import communicator
 def start():
     parser = argparse.ArgumentParser(description='Please enter arguments')
 
-    #subpars = argparse.add_subparser('action')
-
     group = parser.add_mutually_exclusive_group()
 
     group.add_argument('-download', help='Downloads GDoc and converts to .po files', action='store_true')
