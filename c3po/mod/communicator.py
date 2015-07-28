@@ -1,22 +1,28 @@
 #!/usr/bin/env python
+# !/usr/bin/env python
 # -*- coding: utf-8 -*
 
 import os
 import subprocess
 import urlparse
 from subprocess import Popen, PIPE
+import polib
 
 import gdata.spreadsheet.service
 import gdata.docs.client
 import gdata.docs.data
 import gdata.data
 import gdata.docs.service
+import gdata.gauth
 from gdata.client import RequestError
 
 from c3po.conf import settings
 from c3po.converters.po_csv import csv_to_po, po_to_csv_merge
 from c3po.converters.po_ods import po_to_ods, csv_to_ods
+from c3po.converters.po_list import po_to_list, list_to_po, _get_all_po_filenames, _prepare_locale_dirs
 
+import gspread
+import csv
 
 LOCAL_ODS = 'local.ods'
 GDOCS_TRANS_CSV = 'c3po_gdocs_trans.csv'
@@ -39,7 +45,7 @@ class Communicator(object):
         locale_root, po_files_path
     For example in Django, where 'en' is language code:
         conf/locale/en/LC_MESSAGES/django.po
-        conf/locale/en/LC_MESSAGES/custom.po
+        conf/locale/en/LC_MESS AGES/custom.po
     locale_root='conf/locale/'
     po_files_path='LC_MESSAGES'
     """
@@ -58,7 +64,7 @@ class Communicator(object):
                  temp_path=None, languages=None, locale_root=None,
                  po_files_path=None, header=None):
         """
-        Initialize object with all necessary client information and log in
+            Initialize object with all necessary client information and log in
         :param email: user gmail account address
         :param password: password to gmail account
         :param url: url to spreadsheet where translations are or will be placed
@@ -78,29 +84,141 @@ class Communicator(object):
                 setattr(self, cv, getattr(settings, cv.upper()))
             else:
                 setattr(self, cv, locals().get(cv))
-        self._login()
+
+        self.login()
         self._get_gdocs_key()
         self._ensure_temp_path_exists()
 
-    def _login(self):
-        """
-        Login into Google Docs with user authentication info.
-        """
-        try:
-            self.gd_client = gdata.docs.client.DocsClient()
-            self.gd_client.ClientLogin(self.email, self.password, self.source)
-        except RequestError as e:
-            raise PODocsError(e)
+        self.sht = self.download_spreadsheet()
+        self.trans = self.sht.get_worksheet(0)
+        self.meta = self.sht.get_worksheet(1)
 
-    def _get_gdocs_key(self):
-        """
-        Parse GDocs key from Spreadsheet url.
-        """
-        try:
-            args = urlparse.parse_qs(urlparse.urlparse(self.url).query)
-            self.key = args['key'][0]
-        except KeyError as e:
-            raise PODocsError(e)
+    def login(self):
+        print 'starting logging...'
+        client_id = '213287829843-ebhnnhb26rialaos1rl9jhjo50gc2lpo.apps.googleusercontent.com'
+        client_secret = 'ddTqgfG4Z3kTKM3DH2Zz1kfQ'
+        scope = 'https://spreadsheets.google.com/feeds/'
+        user_agent = 'myself'
+        self.token = gdata.gauth.OAuth2Token(client_id=client_id, client_secret=client_secret, scope=scope,
+                                             user_agent=user_agent)
+        token_url = self.token.generate_authorize_url(redirect_uri='urn:ietf:wg:oauth:2.0:oob', approval_prompt='auto',
+                                                      response_type='code')
+        import webbrowser
+        webbrowser.open(token_url)  # automatically open browser
+        code = raw_input("Code: ")  # reading the code
+        print 'Your code: ', code
+        self.token.get_access_token(code)
+        print "Refresh token"
+        print self.token.refresh_token
+        print "Access Token"
+        print self.token.access_token
+        print '\n'
+
+    def download_spreadsheet(self):
+        gc = gspread.authorize(self.token)
+        sht = gc.open_by_url(
+            'https://docs.google.com/spreadsheets/d/1dZWnWcY9bswYocM64dPHaMWYVLLXO8-qEBAb1P8a6XE/edit#gid=0')
+        return sht
+
+    def get_the_right_size(self):
+        trans_sheet = self.sht.get_worksheet(0)
+        meta_sheet = self.sht.get_worksheet(1)
+        po_files = _get_all_po_filenames(self.locale_root, self.languages[0], self.po_files_path)
+
+        k = 0
+        for po_file in po_files:
+            po = polib.pofile(self.locale_root + "/" + self.languages[0] + "/" + self.po_files_path + "/" + po_file)
+            for entry in po:
+                k += 1
+
+        if trans_sheet.row_count < k or meta_sheet.row_count < k:
+            trans_sheet.resize(k + 1, trans_sheet.col_count)
+            meta_sheet.resize(k + 1, trans_sheet.col_count)
+            trans_sheet = self.sht.get_worksheet(0)
+            meta_sheet = self.sht.get_worksheet(1)
+        return trans_sheet, meta_sheet
+
+    def prepare_upload(self):
+
+        trans_sheet, meta_sheet = self.get_the_right_size()
+
+        how_many = trans_sheet.row_count
+
+        trans_comment = trans_sheet.range(chr(1 + 64) + str(1) + ":" + chr(1 + 64) + str(how_many))
+        trans_comment[0].value = 'comment'
+
+        to_translate = trans_sheet.range(chr(2 + 64) + str(1) + ":" + chr(2 + 64) + str(how_many))
+        to_translate[0].value = 'to_translate'
+
+        meta_file = meta_sheet.range(chr(1 + 64) + str(1) + ":" + chr(1 + 64) + str(how_many))
+        meta_file[0].value = 'file'
+
+        meta_data = meta_sheet.range(chr(2 + 64) + str(1) + ":" + chr(2 + 64) + str(how_many))
+        meta_data[0].value = 'metadata'
+
+        trans = []
+        trans.append(trans_comment)
+        trans.append(to_translate)
+
+        meta = []
+        meta.append(meta_file)
+        meta.append(meta_data)
+
+        for i, lang in enumerate(self.languages):
+            col = trans_sheet.range(chr(1 + i + 64 + 2) + str(1) + ":" + chr(1 + i + 64 + 2) + str(how_many))
+            col[0].value = lang
+            trans.append(col)
+
+        return trans, meta
+
+    def upload(self):
+
+        trans, meta = self.prepare_upload()
+
+        trans, meta = po_to_list(trans, meta, self.languages, self.locale_root, self.po_files_path)
+        trans_sheet = self.sht.get_worksheet(0)
+        meta_sheet = self.sht.get_worksheet(1)
+        for tra in trans:
+            trans_sheet.update_cells(tra)
+        for met in meta:
+            meta_sheet.update_cells(met)
+
+    def num_to_alphanum(self, column, row):
+        return chr(column + 64) + str(row)
+
+    def clear(self):
+        no = 0
+        how_many_trans = self.trans.row_count
+        how_many_meta = self.meta.row_count
+        for col in range(self.trans.col_count):
+            no += 1
+            trans_column = self.trans.range(
+                self.num_to_alphanum(no, 1) + ":" + self.num_to_alphanum(no, how_many_trans))
+            meta_column = self.meta.range(self.num_to_alphanum(no, 1) + ":" + self.num_to_alphanum(no, how_many_meta))
+            for cell in trans_column:
+                cell.value = ""
+            for cell in meta_column:
+                cell.value = ""
+            self.trans.update_cells(trans_column)
+            self.meta.update_cells(meta_column)
+
+    def download(self):
+        self.sht = self.download_spreadsheet()
+        trans = self.sht.get_worksheet(0)
+        meta = self.sht.get_worksheet(1)
+
+        trans_list = []
+        for i in range(len(self.languages) + 2):  # +1(comment) + 1(to_translate))
+            trans_list.append(
+                trans.range(self.num_to_alphanum(i + 1, 1) + ":" + self.num_to_alphanum(i + 1, trans.row_count)))
+
+        meta_list = []
+        meta_list.append(meta.range("A1:A" + str(meta.row_count)))
+        meta_list.append(meta.range("B1:B" + str(meta.row_count)))
+
+        list_to_po(trans_list, meta_list, self.locale_root, self.po_files_path, self.languages,
+                   header='# translated with c3po\n')
+
 
     def _ensure_temp_path_exists(self):
         """
@@ -123,43 +241,6 @@ class Communicator(object):
             file_path = os.path.join(self.temp_path, temp_file)
             if os.path.exists(file_path):
                 os.remove(file_path)
-
-    def _download_csv_from_gdocs(self, trans_csv_path, meta_csv_path):
-        """
-        Download csv from GDoc.
-        :return: returns resource if worksheets are present
-        :except: raises PODocsError with info if communication
-                 with GDocs lead to any errors
-        """
-        try:
-            entry = self.gd_client.GetResourceById(self.key)
-            self.gd_client.DownloadResource(
-                entry, trans_csv_path,
-                extra_params={'gid': 0, 'exportFormat': 'csv'}
-            )
-            self.gd_client.DownloadResource(
-                entry, meta_csv_path,
-                extra_params={'gid': 1, 'exportFormat': 'csv'}
-            )
-        except (RequestError, IOError) as e:
-            raise PODocsError(e)
-        return entry
-
-    def _upload_file_to_gdoc(
-            self, file_path,
-            content_type='application/x-vnd.oasis.opendocument.spreadsheet'):
-        """
-        Uploads file to GDocs spreadsheet.
-        Content type can be provided as argument, default is ods.
-        """
-        try:
-            entry = self.gd_client.GetResourceById(self.key)
-            media = gdata.data.MediaSource(
-                file_path=file_path, content_type=content_type)
-            self.gd_client.UpdateResource(
-                entry, media=media, update_metadata=True)
-        except (RequestError, IOError) as e:
-            raise PODocsError(e)
 
     def _merge_local_and_gdoc(self, entry, local_trans_csv,
                               local_meta_csv, gdocs_trans_csv, gdocs_meta_csv):
@@ -218,58 +299,6 @@ class Communicator(object):
                 raise PODocsError(e)
 
         self._clear_temp()
-
-    def download(self):
-        """
-        Download csv files from GDocs and convert them into po files structure.
-        """
-        trans_csv_path = os.path.realpath(
-            os.path.join(self.temp_path, GDOCS_TRANS_CSV))
-        meta_csv_path = os.path.realpath(
-            os.path.join(self.temp_path, GDOCS_META_CSV))
-
-        self._download_csv_from_gdocs(trans_csv_path, meta_csv_path)
-
-        try:
-            csv_to_po(trans_csv_path, meta_csv_path,
-                      self.locale_root, self.po_files_path, header=self.header)
-        except IOError as e:
-            raise PODocsError(e)
-
-        self._clear_temp()
-
-    def upload(self):
-        """
-        Upload all po files to GDocs ignoring conflicts.
-        This method looks for all msgids in po_files and sends them
-        as ods to GDocs Spreadsheet.
-        """
-        local_ods_path = os.path.join(self.temp_path, LOCAL_ODS)
-        try:
-            po_to_ods(self.languages, self.locale_root,
-                      self.po_files_path, local_ods_path)
-        except (IOError, OSError) as e:
-            raise PODocsError(e)
-
-        self._upload_file_to_gdoc(local_ods_path)
-
-        self._clear_temp()
-
-    def clear(self):
-        """
-        Clear GDoc Spreadsheet by sending empty csv file.
-        """
-        empty_file_path = os.path.join(self.temp_path, 'empty.csv')
-        try:
-            empty_file = open(empty_file_path, 'w')
-            empty_file.write(',')
-            empty_file.close()
-        except IOError as e:
-            raise PODocsError(e)
-
-        self._upload_file_to_gdoc(empty_file_path, content_type='text/csv')
-
-        os.remove(empty_file_path)
 
 
 def git_push(git_message=None, git_repository=None, git_branch=None,

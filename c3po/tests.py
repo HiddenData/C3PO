@@ -1,16 +1,11 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
-import csv
-import os
-import shutil
+
 import unittest
-
-import gdata.data
-from c3po.converters.po_ods import csv_to_ods
-
-from mod.communicator import Communicator
-
+import shutil
+import os
+import polib
+from c3po.converters.po_list import list_to_po, po_to_list, _get_all_po_filenames
+# from c3po.mod.communicator import Communicator
 
 TESTS_URL = 'https://docs.google.com/spreadsheet/ccc?key=0AnVOHClWGpLZdGFpQmpVUUx2eUg4Z0NVMGVQX3NrNkE#gid=0'
 
@@ -49,70 +44,112 @@ msgstr ""
 
 ''']
 
-CSV_TRANS_GDOCS = [
-    ['comment', 'msgid', 'en:msgstr', 'pl:msgstr', 'jp:msgstr'],
-    ['', 'Translation1', 'Str1 gdocs', 'Str1 gdocs', 'Str1 gdocs'],
-    ['', 'Translation3', 'Str3', 'Str3', 'Str3'],
-    ['', 'Custom1', 'Str1 gdocs', 'Str1 gdocs', 'Str1 gdocs'],
-    ['', 'Custom3', 'Str3', 'Str3', 'Str3'],
-]
-
-CSV_META_GDOCS = [
-    ['file', 'metadata'],
-    ['custom.po', "{'occurrences': [(u'tpl/base_site.html', u'44')]}"],
-    ['custom.po', "{'occurrences': [(u'tpl/base_site.html', u'44')]}"],
-    ['django.po', "{'occurrences': [(u'tpl/base_site.html', u'44')]}"],
-    ['django.po', "{'occurrences': [(u'tpl/base_site.html', u'44')]}"],
-]
-
-PO_CONTENT_MERGED = [r'''# test
+PL_CUSTOM = [r'''# translated with c3po
 msgid ""
 msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: %s\n"
+"Language: pl\n"
 
-#: tpl/base_site.html:44
 msgid "Translation1"
-msgstr "Str1 gdocs"
+msgstr "Str1 local"
 
-#: tpl/base_site.html:44
-msgid "Translation3"
-msgstr "Str3"
-
-#: tpl/base_site.html:44
 msgid "Translation2"
 msgstr ""
-''', r'''# test
+
+''']
+
+PL_DJANGO = [r'''# translated with c3po
 msgid ""
 msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Language: %s\n"
+"Language: pl\n"
 
-#: tpl/base_site.html:44
 msgid "Custom1"
-msgstr "Str1 gdocs"
+msgstr "Str1 local"
 
-#: tpl/base_site.html:44
-msgid "Custom3"
-msgstr "Str3"
-
-#: tpl/base_site.html:44
+# komentarz
 msgid "Custom2"
 msgstr ""
+
 ''']
 
+JA_CUSTOM = [r'''# translated with c3po
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ja\n"
 
-class TestCommunicator(unittest.TestCase):
+msgid "Translation1"
+msgstr "Str1 local"
+
+msgid "Translation2"
+msgstr ""
+
+''']
+
+JA_DJANGO = [r'''# translated with c3po
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ja\n"
+
+msgid "Custom1"
+msgstr "Str1 local"
+
+# komentarz
+msgid "Custom2"
+msgstr ""
+
+''']
+
+EN_CUSTOM = [r'''# translated with c3po
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en\n"
+
+msgid "Translation1"
+msgstr "Str1 local"
+
+msgid "Translation2"
+msgstr ""
+
+''']
+
+EN_DJANGO = [r'''# translated with c3po
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en\n"
+
+msgid "Custom1"
+msgstr "Str1 local"
+
+# komentarz
+msgid "Custom2"
+msgstr ""
+
+''']
+
+class Test_Converters(unittest.TestCase):
 
     def setUp(self):
         self.temp_dir = 'temp-conf'
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
-        self.languages = ['en', 'pl', 'jp']
+        self.languages = ['en', 'pl', 'ja']
         self.po_filenames = ['custom.po', 'django.po']
         self.locale_root = os.path.join(self.temp_dir, 'locale')
         self.po_files_path = 'LC_MESSAGES'
@@ -127,43 +164,81 @@ class TestCommunicator(unittest.TestCase):
             with open(os.path.join(lang_path, self.po_filenames[1]), 'wb') as po_file:
                 po_file.write(PO_CONTENT_LOCAL[1] % lang)
 
-        self.com = Communicator(url=TESTS_URL, languages=self.languages, locale_root=self.locale_root,
-                                po_files_path=self.po_files_path, header=self.header)
-        self.com.clear()
+    def prepare_trans_and_meta(self):
+        trans = []
+        meta = []
+        meta_col1 = []
+        meta_col2 = []
+        for i in range(5):
+            tmp = []
+            for j in range(5):
+                tmp.append(Cell(''))
+            trans.append(tmp)
+            meta_col1.append(Cell(''))
+            meta_col2.append(Cell(''))
+        meta.append(meta_col1)
+        meta.append(meta_col2)
+        trans[0][0].value = 'comment'
+        trans[1][0].value = 'to_translate'
+        trans[2][0].value = 'en'
+        trans[3][0].value = 'pl'
+        trans[4][0].value = 'ja'
 
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir)
-        self.com.clear()
+        return trans, meta
 
-    def test_multiple_files_sync(self):
-        temp_trans_path = os.path.join(self.temp_dir, 'temp_trans.csv')
-        temp_meta_path = os.path.join(self.temp_dir, 'temp_meta.csv')
-        temp_ods_path = os.path.join(self.temp_dir, 'temp.ods')
-        with open(temp_trans_path, 'wb') as csv_file:
-            writer = csv.writer(csv_file)
-            writer.writerows(CSV_TRANS_GDOCS)
-        with open(temp_meta_path, 'wb') as csv_file:
-            writer = csv.writer(csv_file)
-            writer.writerows(CSV_META_GDOCS)
+    def test_po_to_list(self):
 
-        csv_to_ods(temp_trans_path, temp_meta_path, temp_ods_path)
+        result = self.prepare_result()
+        trans, meta = self.prepare_trans_and_meta()
 
-        entry = self.com.gd_client.GetResourceById(self.com.key)
-        media = gdata.data.MediaSource(file_path=temp_ods_path,
-                                       content_type='application/x-vnd.oasis.opendocument.spreadsheet')
-        self.com.gd_client.UpdateResource(entry, media=media, update_metadata=False)
+        trans, meta = po_to_list(trans, meta, self.languages, self.locale_root, self.po_files_path)
 
-        self.com.synchronize()
+        hilfe = []
+        for i in range(5):
+            tmp = []
+            hilfe.append(tmp)
+        for col in range(len(trans)):
+            for row in range(len(trans[0])):
+                hilfe[col].append(trans[col][row].value)
 
-        for lang in self.languages:
-            lang_path = os.path.join(self.locale_root, lang, self.po_files_path)
+        self.assertEqual(result, hilfe)
 
-            with open(os.path.join(lang_path, self.po_filenames[0]), 'rb') as po_file:
-                self.assertEqual(po_file.read(), PO_CONTENT_MERGED[0] % lang)
+    def prepare_result(self):
+        result = []
+        for i in range(5):
+            tmp = []
+            result.append(tmp)
 
-            with open(os.path.join(lang_path, self.po_filenames[1]), 'rb') as po_file:
-                self.assertEqual(po_file.read(), PO_CONTENT_MERGED[1] % lang)
+        result[0] = ['comment', '', '', '', '']
+        result[1] = ['to_translate', 'Translation1', 'Translation2', 'Custom1', 'Custom2']
+        result[2] = ['en', 'Str1 local', '', 'Str1 local', '']
+        result[3] = ['pl', 'Str1 local', '', 'Str1 local', '']
+        result[4] = ['ja', 'Str1 local', '', 'Str1 local', '']
 
+        return result
+
+    def test_list_to_po(self):
+
+        result = self.prepare_result()
+
+        trans, meta = self.prepare_trans_and_meta()
+
+        list_to_po(trans, meta, self.locale_root, self.po_files_path, self.languages)
+
+        po_files = _get_all_po_filenames(self.locale_root, self.languages[0], self.po_files_path)
+
+        for k in range(len(trans)):  # for every language
+            for po_file in po_files:
+                po = polib.pofile(self.locale_root + "/" + self.languages[0] + "/" + self.po_files_path + "/" + po_file)
+                for i, entry in enumerate(po_file):
+                    self.assertEqual(entry.tcomment, result[0][i+1])
+                    self.assertEqual(entry.msgid, result[1][i+1])
+                    self.assertEqual(entry.msgstr, result[k][i+1])
+
+
+class Cell:
+    def __init__(self, value):
+        self.value = value
 
 if __name__ == '__main__':
     unittest.main()

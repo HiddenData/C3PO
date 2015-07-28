@@ -6,7 +6,8 @@ import os
 ROOT_DIR = os.path.realpath(os.path.join(os.path.dirname(__file__), '..'))
 
 # List of languages to read from and write po file to
-LANGUAGES = ['en', 'pl', 'jp']
+LANGUAGES = ['en', 'pl', 'ja']
+DEFAULT_LANGUAGE = 'pl'
 
 # GDocs authentication information
 EMAIL = 'ttestt123321@gmail.com'
@@ -44,3 +45,6 @@ TITLE_ROW_BG_COLOR = '#D9EDF7'
 TITLE_ROW_FONT_COLOR = '#3A87AD'
 MSGSTR_COLUMN_WIDTH = '2.5in'
 NOTES_COLUMN_WIDTH = '1.5in'
+
+# Auto translating made by GoogleTranslate
+AUTO_TRANSLATE = False
