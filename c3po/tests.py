@@ -1,14 +1,10 @@
-
-
 import unittest
 import shutil
 import os
 import polib
 from c3po.converters.po_list import list_to_po, po_to_list, _get_all_po_filenames
-# from c3po.mod.communicator import Communicator
 
 TESTS_URL = 'https://docs.google.com/spreadsheet/ccc?key=0AnVOHClWGpLZdGFpQmpVUUx2eUg4Z0NVMGVQX3NrNkE#gid=0'
-
 
 PO_CONTENT_LOCAL = [r'''# test
 msgid ""
@@ -143,8 +139,13 @@ msgstr ""
 
 ''']
 
-class Test_Converters(unittest.TestCase):
 
+class Cell:
+    def __init__(self, value):
+        self.value = value
+
+
+class TestConverters(unittest.TestCase):
     def setUp(self):
         self.temp_dir = 'temp-conf'
         if os.path.exists(self.temp_dir):
@@ -170,10 +171,7 @@ class Test_Converters(unittest.TestCase):
         meta_col1 = []
         meta_col2 = []
         for i in range(5):
-            tmp = []
-            for j in range(5):
-                tmp.append(Cell(''))
-            trans.append(tmp)
+            trans.append([Cell('') for _ in range(5)])
             meta_col1.append(Cell(''))
             meta_col2.append(Cell(''))
         meta.append(meta_col1)
@@ -193,27 +191,26 @@ class Test_Converters(unittest.TestCase):
 
         trans, meta = po_to_list(trans, meta, self.languages, self.locale_root, self.po_files_path)
 
-        hilfe = []
+        func_result = self.cell_list_helper(trans)
+
+        self.assertEqual(result, func_result)
+
+    def cell_list_helper(self, cell_list):
+        help_list = []
         for i in range(5):
             tmp = []
-            hilfe.append(tmp)
-        for col in range(len(trans)):
-            for row in range(len(trans[0])):
-                hilfe[col].append(trans[col][row].value)
-
-        self.assertEqual(result, hilfe)
+            help_list.append(tmp)
+        for col in range(len(cell_list)):
+            for row in range(len(cell_list[0])):
+                help_list[col].append(cell_list[col][row].value)
+        return help_list
 
     def prepare_result(self):
-        result = []
-        for i in range(5):
-            tmp = []
-            result.append(tmp)
-
-        result[0] = ['comment', '', '', '', '']
-        result[1] = ['to_translate', 'Translation1', 'Translation2', 'Custom1', 'Custom2']
-        result[2] = ['en', 'Str1 local', '', 'Str1 local', '']
-        result[3] = ['pl', 'Str1 local', '', 'Str1 local', '']
-        result[4] = ['ja', 'Str1 local', '', 'Str1 local', '']
+        result = [['comment', '', '', '', ''],
+                  ['to_translate', 'Translation1', 'Translation2', 'Custom1', 'Custom2'],
+                  ['en', 'Str1 local', '', 'Str1 local', ''],
+                  ['pl', 'Str1 local', '', 'Str1 local', ''],
+                  ['ja', 'Str1 local', '', 'Str1 local', '']]
 
         return result
 
@@ -229,16 +226,15 @@ class Test_Converters(unittest.TestCase):
 
         for k in range(len(trans)):  # for every language
             for po_file in po_files:
-                po = polib.pofile(self.locale_root + "/" + self.languages[0] + "/" + self.po_files_path + "/" + po_file)
+                po = polib.pofile(os.path.join(self.locale_root, self.languages[0], self.po_files_path, po_file))
                 for i, entry in enumerate(po_file):
-                    self.assertEqual(entry.tcomment, result[0][i+1])
-                    self.assertEqual(entry.msgid, result[1][i+1])
-                    self.assertEqual(entry.msgstr, result[k][i+1])
+                    self.assertEqual(entry.tcomment, result[0][i + 1])
+                    self.assertEqual(entry.msgid, result[1][i + 1])
+                    self.assertEqual(entry.msgstr, result[k][i + 1])
 
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
 
-class Cell:
-    def __init__(self, value):
-        self.value = value
 
 if __name__ == '__main__':
     unittest.main()

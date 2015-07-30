@@ -17,12 +17,9 @@ import gdata.gauth
 from gdata.client import RequestError
 
 from c3po.conf import settings
-from c3po.converters.po_csv import csv_to_po, po_to_csv_merge
-from c3po.converters.po_ods import po_to_ods, csv_to_ods
-from c3po.converters.po_list import po_to_list, list_to_po, _get_all_po_filenames, _prepare_locale_dirs
+from c3po.converters.po_list import po_to_list, list_to_po, _get_all_po_filenames
 
 import gspread
-import csv
 
 LOCAL_ODS = 'local.ods'
 GDOCS_TRANS_CSV = 'c3po_gdocs_trans.csv'

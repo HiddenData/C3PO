@@ -22,15 +22,11 @@ def _write_header(po_path, lang, header=''):
     """
     po_file = open(po_path, 'w')
     po_file.write(header + '\n')
-    po_file.write(
-        'msgid ""' +
-        '\nmsgstr ""' +
-        '\n"MIME-Version: ' + settings.METADATA['MIME-Version'] + r'\n"'
-                                                                  '\n"Content-Type: ' + settings.METADATA[
-            'Content-Type'] + r'\n"'
-                              '\n"Content-Transfer-Encoding: ' +
-        settings.METADATA['Content-Transfer-Encoding'] + r'\n"'
-                                                         '\n"Language: ' + lang + r'\n"' + '\n')
+    content = '{}{}{}{}{}{}{}{}{}{}{}{}'.format(
+        'msgid ""', '\nmsgstr ""', '\n"MIME-Version: ', settings.METADATA['MIME-Version'], r'\n"''\n"Content-Type: ',
+        settings.METADATA['Content-Type'], r'\n"''\n"Content-Transfer-Encoding: ',
+        settings.METADATA['Content-Transfer-Encoding'], r'\n"''\n"Language: ', lang, r'\n"', '\n')
+    po_file.write(content)
     po_file.close()
 
 
@@ -99,37 +95,43 @@ def _write_entries(po_files, languages, msgid, msgstrs, metadata, comment):
 
 
 def po_to_list(trans, meta, languages, locale_root, po_files_path):
+    """
+    Finds all .po files in locale_root directory and converts them into gspread.Cell list.
+    """
     po_files = _get_all_po_filenames(locale_root, languages[0], po_files_path)
 
-    k = 0
+    last_row = 0
     for po_file in po_files:
         po = polib.pofile(locale_root + "/" + languages[0] + "/" + po_files_path + "/" + po_file)
-        for i, entry in enumerate(po):
-            trans[0][i + 1 + k].value = entry.tcomment
-            trans[1][i + 1 + k].value = entry.msgid
-            meta[0][i + 1 + k].value = po_file
-            meta[1][i + 1 + k].value = METADATA_EMPTY
-        k += i + 1
+        for entry_no, entry in enumerate(po):
+            curr_row = entry_no + 1 + last_row
+            trans[0][curr_row].value = entry.tcomment
+            trans[1][curr_row].value = entry.msgid
+            meta[0][curr_row].value = po_file
+            meta[1][curr_row].value = METADATA_EMPTY
+        last_row += entry_no + 1
 
-    for i in range(2, len(trans)):
-        trans[i][0].value = languages[i - 2]
-        k = 0
+    for col in range(2, len(trans)):
+        trans[col][0].value = languages[col - 2]
+        last_row = 0
         for po_file in po_files:
-            po = polib.pofile(locale_root + "/" + trans[i][0].value + "/" + po_files_path + "/" + po_file)
-            for j, entry in enumerate(po):
+            po = polib.pofile(locale_root + "/" + trans[col][0].value + "/" + po_files_path + "/" + po_file)
+            for entry_no, entry in enumerate(po):
+                curr_row = entry_no + last_row + 1
                 if not settings.AUTO_TRANSLATE:
-                    trans[i][j + 1 + k].value = entry.msgstr
+                    trans[col][entry_no + 1 +last_row].value = entry.msgstr
                 else:
-                    value = "=GoogleTranslate(" + "B" + str(
-                        j + 1 + k + 1) + ", \"" + settings.DEFAULT_LANGUAGE + "\", " + "\"" + trans[i][
-                                0].value + "\"" + ")"
-                    trans[i][j + k + 1].value = value
-            k += j + 1
+                    value = "=GoogleTranslate(B{}{}{}{}{}{}{}{}".format(str(curr_row + 1), ", \"", settings.DEFAULT_LANGUAGE, "\", ", "\"", trans[col][0].value, "\"", ")")
+                    trans[col][curr_row].value = value
+            last_row += entry_no + 1
 
     return trans, meta
 
 
 def list_to_po(trans, meta, locale_root, po_files_path, languages, header='# translated with c3po\n'):
+    """
+    Takes gspread.Cell list save data from that list in .po files
+    """
     # deleting previous files
     pattern = "^\w+.*po$"
     for root, dirs, files in os.walk(locale_root):
@@ -146,16 +148,23 @@ def list_to_po(trans, meta, locale_root, po_files_path, languages, header='# tra
             metadata = meta[1][row].value.rstrip() if meta[1][row].value else METADATA_EMPTY  # if meta[1] else - before
             msgid = trans[1][row].value
             comment = trans[0][row].value
-            tmp_row = []
-            for col in range(2, len(trans)):  # comment and msgid
-                tmp_row.append(trans[col][row].value)
+            new_row = []
+            new_row.append([trans[col][row].value for col in range(2, len(trans))])
 
             if filename not in po_files:
                 _prepare_polib_files(po_files, filename, languages,
                                      locale_root, po_files_path, header)
 
-            _write_entries(po_files[filename], languages, msgid, tmp_row, metadata, comment)
+            _write_entries(po_files[filename], languages, msgid, new_row, metadata, comment)
 
             for filename in po_files:
                 for lang in po_files[filename]:
                     po_files[filename][lang].save()
+
+
+
+
+
+
+
+
